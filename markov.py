@@ -1,0 +1,4 @@
+'''
+A standalone alternate version
+'''
+

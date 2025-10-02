@@ -66,6 +66,7 @@ class FrameTests(bt.testGroup):
 			np.array([50,30])
 		)	
 
+
 bt.test_all(
 	BlobGenerationTests,
 	FrameTests,
