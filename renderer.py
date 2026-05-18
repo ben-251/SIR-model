@@ -1,10 +1,14 @@
 from backend import Blob, Colour, HealthStatus
 from typing import Dict, List, Tuple, Optional
+from itertools import product
+import numpy as np
 from PIL import Image as Im
 from PIL import ImageDraw
 import random
 import cv2 
 import math
+
+from stochastic_tests import BlobGenerationTests
 
 class TargetNotFoundError(Exception): ...
 
@@ -45,15 +49,24 @@ class Frame:
 	
 
 class Universe:
+	'''
+	The world of the creatures and epidemic.
+	'''
 	ticks:int
 	blobs:List[Blob]
 	size:Tuple[int,int]
 	frames:Dict[int, Im.Image]
 
-	def __init__(self, size:Optional[Tuple[int,int]]=None, blob_count:int=25, health_ratio:Tuple[int,int,int, int]=(1,0,0,0)) -> None:
+	def __init__(self, size:Optional[Tuple[int,int]]=None,
+				blob_count:int=25, health_ratio:Tuple[int,int,int, int]=(1,0,0,0),
+				recovery_rate:float=0.1, survival_rate:float=0.8, infection_rate = 0.08
+			) -> None:
 		self.size = 100,100
 		self.ticks = 0
 		self.generate_blobs(blob_count, health_ratio)
+		self.recovery_rate = recovery_rate
+		self.survival_rate = survival_rate
+		self.infection_rate = infection_rate
 
 	def generate_health_pattern(self, n:int, health_ratio):
 		pattern = []
@@ -73,16 +86,72 @@ class Universe:
 			x,y = random.uniform(0,self.size[0]), random.uniform(0,self.size[1])
 			health = health_pattern[i]
 			self.blobs.append(Blob(initial_position=(x,y),ID=i,health_status=health))
+			#TODO: for sick blobs, set their infection duration to random length using the same function as below (generate_sickness_duration() or whatever)
+	
+	def search_for_nearby_blobs(self,target_blob:Blob,radius:int=3):
+		target_position =target_blob.get_position()
+		nearby_blobs = []
 
-	def initialise_frame(self):
+		for blob in self.blobs:
+			if blob == target_blob: 
+				continue
+			other_position = blob.get_position()
+			distance = np.linalg.norm(target_position - other_position)
+			if distance <= radius:
+				nearby_blobs.append(blob)
+		
+		return nearby_blobs
+
+	def generate_sickness_duration(self) -> int:
+		'''
+		Chooses a random duration of infection according to a normal distribution.
+		'''
+		u = random.random()
+		return math.floor(-math.log(u) / self.recovery_rate)
+	
+	def assign_fate(self) -> bool:
+		'''
+		Randomly assign a bool state describing whether the blob survives their disease.
+		'''
+		return random.random() < self.survival_rate
+	
+	def is_contracted(self) -> bool:
+		return random.random() < self.infection_rate
+
+	def update_healths(self):
+		for blob in self.blobs:
+			nearby_blobs = self.search_for_nearby_blobs(blob)
+			if blob.health_status == HealthStatus.SUSCEPTIBLE and any(neighbour.health_status==HealthStatus.INFECTED for neighbour in nearby_blobs):
+				#TODO: potentially make is_contracted take in the number of sick neighbours.
+				isInfected = self.is_contracted()
+				if isInfected:
+					blob.health_status = HealthStatus.INFECTED
+					blob.time_sick = self.generate_sickness_duration()
+				continue
+			elif blob.health_status == HealthStatus.INFECTED and blob.time_sick > 0:
+				blob.time_sick -= 1
+				continue
+			elif blob.health_status == HealthStatus.INFECTED and blob.time_sick == 0:
+				isCured = self.assign_fate()
+				if isCured:
+					blob.health_status = HealthStatus.RECOVERED
+					continue
+				else:
+					blob.health_status = HealthStatus.DECEASED
+
+	def create_frame(self, is_initial:Optional[bool]=False) -> Im.Image:
 		'''
 		Shows all blobs in the real plane.
 		Opens up a frame to animate blobs on according to their individual physical properties.
 		'''
+		new_image = Im.new(mode='RGB', size=self.size, color=(255,255,255))
+		draw = ImageDraw.Draw(new_image,  'RGBA')
+		for blob in self.blobs:
+			draw.circle(tuple(blob.get_position()),1,blob.get_rgb_colour())
+		return new_image
 
 	def render_next_frame(self) -> Im.Image:
-		new_image = Im.new(mode='RGB', size=self.size)
-		...
+		new_image = self.create_frame()
 		return new_image
 
 	def update_physics(self):
@@ -96,14 +165,17 @@ class Universe:
 
 		while self.ticks < end_frame:
 			self.update_physics()
+			self.update_healths()
+
 			yield self.render_next_frame()
+
 			self.ticks += 1
 	
 	def generate_video(self,end_frame:Optional[int]=None):
 		frames = list(self.generate_frames(end_frame))
-		import numpy as np
+
 		dimensions = (frames[0].size)
-		format_ = cv2.VideoWriter_fourcc(*"mp4v")
+		format_ = cv2.VideoWriter.fourcc(*"mp4v")
 		FPS = 30
 		video = cv2.VideoWriter('output.mp4', format_, FPS, dimensions)
 
