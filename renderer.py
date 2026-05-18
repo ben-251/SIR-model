@@ -8,9 +8,8 @@ import random
 import cv2 
 import math
 
-from stochastic_tests import BlobGenerationTests
-
 class TargetNotFoundError(Exception): ...
+class OutOfWorldError(Exception): ...
 
 class Frame:
 	render: Optional[str|Im.Image] = None
@@ -43,8 +42,6 @@ class Frame:
 	def store_blobs(self, *blobs:Blob):
 		for blob in blobs:
 			self.blobs.append(blob)
-
-
 
 	
 
@@ -86,7 +83,7 @@ class Universe:
 			x,y = random.uniform(0,self.size[0]), random.uniform(0,self.size[1])
 			health = health_pattern[i]
 			self.blobs.append(Blob(initial_position=(x,y),ID=i,health_status=health))
-			#TODO: for sick blobs, set their infection duration to random length using the same function as below (generate_sickness_duration() or whatever)
+			#TODO: for ~initialised-as-sick blobs~, set their infection duration to random length using the same function as below (generate_sickness_duration() or whatever)
 	
 	def search_for_nearby_blobs(self,target_blob:Blob,radius:int=3):
 		target_position =target_blob.get_position()
@@ -144,7 +141,7 @@ class Universe:
 		Shows all blobs in the real plane.
 		Opens up a frame to animate blobs on according to their individual physical properties.
 		'''
-		new_image = Im.new(mode='RGB', size=self.size, color=(255,255,255))
+		new_image = Im.new(mode='RGB', size=self.size, color=(255,230,155))
 		draw = ImageDraw.Draw(new_image,  'RGBA')
 		for blob in self.blobs:
 			draw.circle(tuple(blob.get_position()),1,blob.get_rgb_colour())
@@ -154,11 +151,45 @@ class Universe:
 		new_image = self.create_frame()
 		return new_image
 
+	def is_in_world(self, position:np.ndarray) -> bool:
+		return 0 <=  position[0] and position[0] <= self.size[0] and 0 <= position[1] and position[1] <= self.size[1]
+
+	def update_position(self, blob:Blob, delta_t:float) -> None:
+		old_position = blob.get_position()
+		new_position = old_position + blob.get_velocity() * delta_t
+		if not self.is_in_world(new_position):
+			raise OutOfWorldError()
+		blob.set_position((new_position[0],new_position[1]))
+	
+	def update_velocity(self, blob, isRandom=False):
+		if isRandom: 
+			gamma = 0.8
+		else: 
+			gamma = 0.1
+		
+		current_velocity = blob.get_velocity()
+
+		current_direction = math.atan2(current_velocity[1], current_velocity[0])
+		noise = random.gauss(0,gamma)
+		new_direction = current_direction + noise
+
+		speed = np.linalg.norm(current_velocity)
+
+		v_x =	speed * math.cos(new_direction)
+		v_y =	speed * math.sin(new_direction)
+		blob.set_velocity((v_x, v_y))
+
+		
 	def update_physics(self):
 		for blob in self.blobs:
-			blob.update_acceleration(self.ticks)
-			blob.update_velocity(1)
-			blob.update_position(1)
+			try:
+				self.update_velocity(blob)
+				self.update_position(blob, 1)
+			except OutOfWorldError:
+				while True:
+					self.update_velocity(blob,isRandom=True)
+					self.update_position(blob, 1)
+					continue
 
 	def generate_frames(self,end_frame:Optional[int]=None):
 		end_frame = 10_000 if end_frame is None else end_frame
@@ -180,7 +211,7 @@ class Universe:
 		video = cv2.VideoWriter('output.mp4', format_, FPS, dimensions)
 
 		for i, frame in enumerate(frames):
-			print( f'Done: {round(i * 100 / len(frames), 1)} % - {frame}', end="\r") # \r makes it overwrite
+			print( f'Progress: {round(i * 100 / len(frames), 1)} % - {frame}', end="\r") # \r makes it overwrite
 			video.write(cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR))
 		video.release()
 
