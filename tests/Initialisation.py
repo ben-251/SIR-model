@@ -3,6 +3,7 @@ from renderer import Frame, TargetNotFoundError, Universe
 from backend import Blob, HealthStatus, Colour
 import bentests as bt 
 import bentests.asserts as at
+
 import numpy as np
 
 class BlobGenerationTests(bt.testGroup):
@@ -67,9 +68,3 @@ class FrameTests(bt.testGroup):
 		)	
 
 
-bt.test_all(
-	BlobGenerationTests,
-	FrameTests,
-	AllEnumTests,
-	stats_amount="high"
-)

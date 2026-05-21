@@ -35,7 +35,7 @@ class Blob:
 
 		self.id = ID
 		self._position = np.array(initial_position)
-		self._velocity = np.zeros_like(self._position)
+		self._velocity = np.ones_like(self._position)
 		self.health_status = health_status
 		self.time_sick = 0 if time_sick is None else time_sick
 	

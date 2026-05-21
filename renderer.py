@@ -1,5 +1,5 @@
 from backend import Blob, Colour, HealthStatus
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Generator, Iterator, List, Tuple, Optional
 from itertools import product
 import numpy as np
 from PIL import Image as Im
@@ -48,24 +48,37 @@ class Frame:
 class Universe:
 	'''
 	The world of the creatures and epidemic.
+
+	Attributes:
+		- ticks (int): unit of time in the universe. Converts directly into frames
+		- blobs (List[Blob]): the creatures that the epidemic acts on.
+		- size (Tuple[int,int]): size of the universe in pixels, of the form (n,m), 
+					where the universe is the set of lattice points given by 
+					{(x, y) ∈ ℤ² : x ∈ {0, …, n}, y ∈ {0, …, m}}
+		- frames (Dict[int, Im.Image]): 
+		- health_ratio (Tuple[int, int, int, int]):
+		- infection_rate (float): Probability that an exposed blob becomes infected.
+		- expected_illness_duration (float):  Parameter controlling the infection time, following an exponential distribution 
+								Once elapsed, the blob will either recover or die. 
+		- survival_rate (float): Probability that a blob recovers at the end of its sickness period. 
+			
+
 	'''
-	ticks:int
-	blobs:List[Blob]
-	size:Tuple[int,int]
-	frames:Dict[int, Im.Image]
+	
 
 	def __init__(self, size:Optional[Tuple[int,int]]=None,
 				blob_count:int=25, health_ratio:Tuple[int,int,int, int]=(1,0,0,0),
-				recovery_rate:float=0.1, survival_rate:float=0.8, infection_rate = 0.08
+				expected_illness_duration:float=0.1, survival_rate:float=0.8, infection_rate = 0.3
 			) -> None:
-		self.size = 100,100
-		self.ticks = 0
+		self.size = (100,100) if size is None else size
 		self.generate_blobs(blob_count, health_ratio)
-		self.recovery_rate = recovery_rate
+		self.expected_illness_duration = expected_illness_duration
 		self.survival_rate = survival_rate
 		self.infection_rate = infection_rate
+		self.ticks = 0
 
 	def generate_health_pattern(self, n:int, health_ratio):
+		# ratio is S:I:R:D
 		pattern = []
 		micro_count = math.ceil(n/sum(health_ratio))
 		for proportion, health_stat in zip(health_ratio, HealthStatus):
@@ -85,8 +98,8 @@ class Universe:
 			self.blobs.append(Blob(initial_position=(x,y),ID=i,health_status=health))
 			#TODO: for ~initialised-as-sick blobs~, set their infection duration to random length using the same function as below (generate_sickness_duration() or whatever)
 	
-	def search_for_nearby_blobs(self,target_blob:Blob,radius:int=3):
-		target_position =target_blob.get_position()
+	def search_for_nearby_blobs(self,target_blob:Blob,radius:int=7):
+		target_position = target_blob.get_position()
 		nearby_blobs = []
 
 		for blob in self.blobs:
@@ -104,7 +117,7 @@ class Universe:
 		Chooses a random duration of infection according to a normal distribution.
 		'''
 		u = random.random()
-		return math.floor(-math.log(u) / self.recovery_rate)
+		return math.floor(-math.log(u) * self.expected_illness_duration)
 	
 	def assign_fate(self) -> bool:
 		'''
@@ -141,10 +154,10 @@ class Universe:
 		Shows all blobs in the real plane.
 		Opens up a frame to animate blobs on according to their individual physical properties.
 		'''
-		new_image = Im.new(mode='RGB', size=self.size, color=(255,230,155))
+		new_image = Im.new(mode='RGB', size=self.size, color=(255,230,245))
 		draw = ImageDraw.Draw(new_image,  'RGBA')
 		for blob in self.blobs:
-			draw.circle(tuple(blob.get_position()),1,blob.get_rgb_colour())
+			draw.circle(tuple(blob.get_position()),6,blob.get_rgb_colour())
 		return new_image
 
 	def render_next_frame(self) -> Im.Image:
@@ -187,11 +200,14 @@ class Universe:
 				self.update_position(blob, 1)
 			except OutOfWorldError:
 				while True:
-					self.update_velocity(blob,isRandom=True)
-					self.update_position(blob, 1)
-					continue
+					try:
+						self.update_velocity(blob,isRandom=True)
+						self.update_position(blob, 1)
+						break
+					except OutOfWorldError:
+						continue
 
-	def generate_frames(self,end_frame:Optional[int]=None):
+	def generate_frames(self,end_frame:Optional[int]=None) -> Iterator[Im.Image]:
 		end_frame = 10_000 if end_frame is None else end_frame
 
 		while self.ticks < end_frame:
@@ -202,13 +218,19 @@ class Universe:
 
 			self.ticks += 1
 	
+	def generate_frame_images(self, folder_path:str, end_frame:Optional[int]=None):
+		end_frame = 400 if end_frame is None else end_frame
+
+		for i, frame in enumerate(self.generate_frames(end_frame)):
+			frame.save(f"{folder_path}/frame{i}.jpg","JPEG")
+	
 	def generate_video(self,end_frame:Optional[int]=None):
 		frames = list(self.generate_frames(end_frame))
 
 		dimensions = (frames[0].size)
 		format_ = cv2.VideoWriter.fourcc(*"mp4v")
 		FPS = 30
-		video = cv2.VideoWriter('output.mp4', format_, FPS, dimensions)
+		video = cv2.VideoWriter('output/video.mp4', format_, FPS, dimensions)
 
 		for i, frame in enumerate(frames):
 			print( f'Progress: {round(i * 100 / len(frames), 1)} % - {frame}', end="\r") # \r makes it overwrite
@@ -216,4 +238,4 @@ class Universe:
 		video.release()
 
 
-universe = Universe()
+# universe = Universe()
