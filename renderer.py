@@ -1,5 +1,5 @@
 from backend import Blob, Colour, HealthStatus
-from typing import Dict, Generator, Iterator, List, Tuple, Optional
+from typing import Any, Dict, Generator, Iterator, List, Tuple, Optional
 from itertools import product
 import numpy as np
 from PIL import Image as Im
@@ -67,14 +67,16 @@ class Universe:
 	
 
 	def __init__(self, size:Optional[Tuple[int,int]]=None,
-				blob_count:int=25, health_ratio:Tuple[int,int,int, int]=(1,0,0,0),
+				blob_count:int=25, blob_size:int=3, health_ratio:Tuple[int,int,int, int]=(1,0,0,0),
 				expected_illness_duration:float=0.1, survival_rate:float=0.8, infection_rate = 0.3
 			) -> None:
 		self.size = (100,100) if size is None else size
-		self.generate_blobs(blob_count, health_ratio)
 		self.expected_illness_duration = expected_illness_duration
 		self.survival_rate = survival_rate
 		self.infection_rate = infection_rate
+		self.blob_size = blob_size 
+
+		self.generate_blobs(blob_count, health_ratio)
 		self.ticks = 0
 
 	def generate_health_pattern(self, n:int, health_ratio):
@@ -95,19 +97,22 @@ class Universe:
 		for i in range(n):
 			x,y = random.uniform(0,self.size[0]), random.uniform(0,self.size[1])
 			health = health_pattern[i]
-			self.blobs.append(Blob(initial_position=(x,y),ID=i,health_status=health))
-			#TODO: for ~initialised-as-sick blobs~, set their infection duration to random length using the same function as below (generate_sickness_duration() or whatever)
+			current_blob = Blob(initial_position=(x,y),ID=i,health_status=health)
+			if current_blob.health_status == HealthStatus.INFECTED:
+				current_blob.time_sick = self.generate_sickness_duration()
+			self.blobs.append(current_blob)
 	
-	def search_for_nearby_blobs(self,target_blob:Blob,radius:int=7):
+	def search_for_nearby_blobs(self,target_blob:Blob,radius:Optional[int]=None):
 		target_position = target_blob.get_position()
 		nearby_blobs = []
+		radius = 2*self.blob_size if radius is None else radius
 
 		for blob in self.blobs:
 			if blob == target_blob: 
 				continue
 			other_position = blob.get_position()
 			distance = np.linalg.norm(target_position - other_position)
-			if distance <= radius:
+			if distance <= radius:# if the two circles are tangent or intersecting, consider them "close"
 				nearby_blobs.append(blob)
 		
 		return nearby_blobs
@@ -148,21 +153,6 @@ class Universe:
 					continue
 				else:
 					blob.health_status = HealthStatus.DECEASED
-
-	def create_frame(self, is_initial:Optional[bool]=False) -> Im.Image:
-		'''
-		Shows all blobs in the real plane.
-		Opens up a frame to animate blobs on according to their individual physical properties.
-		'''
-		new_image = Im.new(mode='RGB', size=self.size, color=(255,230,245))
-		draw = ImageDraw.Draw(new_image,  'RGBA')
-		for blob in self.blobs:
-			draw.circle(tuple(blob.get_position()),6,blob.get_rgb_colour())
-		return new_image
-
-	def render_next_frame(self) -> Im.Image:
-		new_image = self.create_frame()
-		return new_image
 
 	def is_in_world(self, position:np.ndarray) -> bool:
 		return 0 <=  position[0] and position[0] <= self.size[0] and 0 <= position[1] and position[1] <= self.size[1]
@@ -207,26 +197,49 @@ class Universe:
 					except OutOfWorldError:
 						continue
 
-	def generate_frames(self,end_frame:Optional[int]=None) -> Iterator[Im.Image]:
-		end_frame = 10_000 if end_frame is None else end_frame
+	def export_current_state(self) -> Dict[str, Any]:
+		current_state = dict(id=int(self.ticks), size=self.size, blobs=[])
+		blobs = []
+		for blob in self.blobs:
+			blobs.append(
+				dict(id=blob.id, status=blob.health_status, colour =blob.get_rgb_colour(), position=blob.get_position(), size=self.blob_size)
+			)
+		current_state["blobs"] = blobs
+		return current_state
 
+	def render_frame_from_state(self, state:Dict[str,Any]) -> Im.Image:
+		new_image = Im.new(mode='RGB', size=state["size"], color=(255,250,250))
+		draw = ImageDraw.Draw(new_image,  'RGBA')
+		for blob in state["blobs"]:
+			draw.circle(tuple(blob["position"]),blob["size"],blob["colour"])
+		return new_image
+
+	def generate_state_frames(self,end_frame:Optional[int]=None) -> Iterator[Dict[str,Any]]:
+		end_frame = 400 if end_frame is None else end_frame
 		while self.ticks < end_frame:
 			self.update_physics()
 			self.update_healths()
 
-			yield self.render_next_frame()
+			current_state = self.export_current_state()
+			yield current_state
 
 			self.ticks += 1
-	
-	def generate_frame_images(self, folder_path:str, end_frame:Optional[int]=None):
-		end_frame = 400 if end_frame is None else end_frame
 
-		for i, frame in enumerate(self.generate_frames(end_frame)):
+	def generate_frame_images(self, state_frames:List[Dict[str, Any]]) -> List[Im.Image]:
+		image_frames = []
+		for state in state_frames:
+			image = self.render_frame_from_state(state)
+			image_frames.append(image)
+		
+		return image_frames
+		
+
+	def store_frame_images(self, folder_path:str, frames:List[Im.Image]):
+		for i, frame in enumerate(frames):
 			frame.save(f"{folder_path}/frame{i}.jpg","JPEG")
-	
-	def generate_video(self,end_frame:Optional[int]=None):
-		frames = list(self.generate_frames(end_frame))
 
+	def generate_video(self,state_frames):
+		frames = self.generate_frame_images(state_frames)
 		dimensions = (frames[0].size)
 		format_ = cv2.VideoWriter.fourcc(*"mp4v")
 		FPS = 30
@@ -236,6 +249,5 @@ class Universe:
 			print( f'Progress: {round(i * 100 / len(frames), 1)} % - {frame}', end="\r") # \r makes it overwrite
 			video.write(cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR))
 		video.release()
-
 
 # universe = Universe()

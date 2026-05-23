@@ -75,6 +75,7 @@ class S_to_I_Tests(bt.testGroup):
 			neighbour := Blob((2,5),2,HealthStatus.INFECTED) # a neighbour, 2 units away
 		]
 		universe.update_healths()
+
 		at.assertEquals(
 			target.health_status,
 			HealthStatus.INFECTED

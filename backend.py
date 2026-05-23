@@ -7,6 +7,8 @@ import numpy as np
 import copy
 
 
+
+
 CLEAR = Fore.RESET
 
 class Colour(Enum):
@@ -35,7 +37,7 @@ class Blob:
 
 		self.id = ID
 		self._position = np.array(initial_position)
-		self._velocity = np.ones_like(self._position)
+		self._velocity = np.ones_like(self._position) * 1.7
 		self.health_status = health_status
 		self.time_sick = 0 if time_sick is None else time_sick
 	
