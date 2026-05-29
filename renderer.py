@@ -11,40 +11,6 @@ import math
 class TargetNotFoundError(Exception): ...
 class OutOfWorldError(Exception): ...
 
-class Frame:
-	render: Optional[str|Im.Image] = None
-	
-	def __init__(self, blobs:List[Blob]=[]) -> None:
-		self.blobs = blobs
-
-	def find_blob(self,blob_id:int):
-		for blob in self.blobs:
-			if blob.id == blob_id:
-				return blob
-		raise TargetNotFoundError()
-
-	def update_blob(self, blob_id:int, **kwargs):
-		try:
-			blob = self.find_blob(blob_id)
-		except TargetNotFoundError:
-			print(f"Blob No.{blob_id} does not exist. Skipping...")
-			return None
-
-
-		for property_name,value in kwargs.items():
-			# check if private. if so, then call setter.
-			if property_name.startswith("_"):
-				setter = getattr(blob, f"set{property_name}")
-				setter(value)
-			else:
-				setattr(blob, property_name, value) 
-
-	def store_blobs(self, *blobs:Blob):
-		for blob in blobs:
-			self.blobs.append(blob)
-
-	
-
 class Universe:
 	'''
 	The world of the creatures and epidemic.
@@ -78,6 +44,10 @@ class Universe:
 
 		self.generate_blobs(blob_count, health_ratio)
 		self.ticks = 0
+		self.TICK_RATE = 1
+
+	def tick(self):
+		self.ticks += self.TICK_RATE
 
 	def generate_health_pattern(self, n:int, health_ratio):
 		# ratio is S:I:R:D
@@ -102,7 +72,7 @@ class Universe:
 				current_blob.time_sick = self.generate_sickness_duration()
 			self.blobs.append(current_blob)
 	
-	def search_for_nearby_blobs(self,target_blob:Blob,radius:Optional[int]=None):
+	def find_nearby_blobs(self,target_blob:Blob,radius:Optional[int]=None):
 		target_position = target_blob.get_position()
 		nearby_blobs = []
 		radius = 2*self.blob_size if radius is None else radius
@@ -135,7 +105,7 @@ class Universe:
 
 	def update_healths(self):
 		for blob in self.blobs:
-			nearby_blobs = self.search_for_nearby_blobs(blob)
+			nearby_blobs = self.find_nearby_blobs(blob)
 			if blob.health_status == HealthStatus.SUSCEPTIBLE and any(neighbour.health_status==HealthStatus.INFECTED for neighbour in nearby_blobs):
 				#TODO: potentially make is_contracted take in the number of sick neighbours.
 				isInfected = self.is_contracted()
@@ -159,7 +129,7 @@ class Universe:
 
 	def update_position(self, blob:Blob, delta_t:float) -> None:
 		old_position = blob.get_position()
-		new_position = old_position + blob.get_velocity() * delta_t
+		new_position = old_position + blob.get_velocity() * delta_t # ABSTRACTION MISMATCH
 		if not self.is_in_world(new_position):
 			raise OutOfWorldError()
 		blob.set_position((new_position[0],new_position[1]))
@@ -170,14 +140,14 @@ class Universe:
 		else: 
 			gamma = 0.1
 		
+		# ABSTRACTION MISMATCH subfunction 1
 		current_velocity = blob.get_velocity()
-
-		current_direction = math.atan2(current_velocity[1], current_velocity[0])
-		noise = random.gauss(0,gamma)
+		current_direction = math.atan2(current_velocity[1], current_velocity[0])  
+		noise = random.gauss(0,gamma) 
 		new_direction = current_direction + noise
 
+		# ABSTRACTION MISMATCH subfunction 2
 		speed = np.linalg.norm(current_velocity)
-
 		v_x =	speed * math.cos(new_direction)
 		v_y =	speed * math.sin(new_direction)
 		blob.set_velocity((v_x, v_y))
@@ -204,6 +174,7 @@ class Universe:
 			blobs.append(
 				dict(id=blob.id, status=blob.health_status, colour =blob.get_rgb_colour(), position=blob.get_position(), size=self.blob_size)
 			)
+			# ABSTRACTION MISMATCH - dict should be created in a separate method
 		current_state["blobs"] = blobs
 		return current_state
 
@@ -214,6 +185,18 @@ class Universe:
 			draw.circle(tuple(blob["position"]),blob["size"],blob["colour"])
 		return new_image
 
+	def display_progress_update(self, end_frame:int):
+		progress = 100 *  self.ticks / end_frame
+		# clear current line
+		# Source - https://stackoverflow.com/a/51388326
+# Posted by mr_pool_404, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-05-23, License - CC BY-SA 4.0
+
+		print("\033[A                             \033[A")
+		print("\r", end="")
+		print(f" Progress {progress :.2f}%")
+
+
 	def generate_state_frames(self,end_frame:Optional[int]=None) -> Iterator[Dict[str,Any]]:
 		end_frame = 400 if end_frame is None else end_frame
 		while self.ticks < end_frame:
@@ -222,18 +205,18 @@ class Universe:
 
 			current_state = self.export_current_state()
 			yield current_state
-
-			self.ticks += 1
+			
+			if self.ticks % 3:
+				self.display_progress_update(end_frame)
+			self.tick()
 
 	def generate_frame_images(self, state_frames:List[Dict[str, Any]]) -> List[Im.Image]:
 		image_frames = []
 		for state in state_frames:
 			image = self.render_frame_from_state(state)
 			image_frames.append(image)
-		
 		return image_frames
 		
-
 	def store_frame_images(self, folder_path:str, frames:List[Im.Image]):
 		for i, frame in enumerate(frames):
 			frame.save(f"{folder_path}/frame{i}.jpg","JPEG")

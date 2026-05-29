@@ -1,5 +1,5 @@
 from typing import Any
-from renderer import Frame, TargetNotFoundError, Universe
+from renderer import TargetNotFoundError, Universe
 from backend import Blob, HealthStatus
 import bentests as bt 
 import bentests.asserts as at
@@ -12,7 +12,7 @@ class NeighbourRetrievalTests(bt.testGroup):
 		universe.blobs = [
 			target := Blob((2,3),1)
 		]
-		neighbours = universe.search_for_nearby_blobs(target)
+		neighbours = universe.find_nearby_blobs(target)
 		at.assertEquals(
 			neighbours,
 			[]
@@ -23,7 +23,7 @@ class NeighbourRetrievalTests(bt.testGroup):
 			target := Blob((2,3),1),
 			neighbour1 := Blob((45,23), 2)
 		]
-		neighbours = universe.search_for_nearby_blobs(target)
+		neighbours = universe.find_nearby_blobs(target)
 		at.assertEquals(
 			neighbours,
 			[]
@@ -36,7 +36,7 @@ class NeighbourRetrievalTests(bt.testGroup):
 			neighbour1 := Blob((45,23), 2),
 			neighbour2 := Blob((12,6), 2), # sqrt(10^2 + 3^2) ~ 10.4 < 11
 		]
-		neighbours = universe.search_for_nearby_blobs(target,radius=11)
+		neighbours = universe.find_nearby_blobs(target,radius=11)
 		at.assertEquals(
 			neighbours,
 			[neighbour2]
@@ -49,7 +49,7 @@ class NeighbourRetrievalTests(bt.testGroup):
 			neighbour1 := Blob((45,23), 2),
 			neighbour2 := Blob((2,10), 2)
 		]
-		neighbours = universe.search_for_nearby_blobs(target,radius=7)
+		neighbours = universe.find_nearby_blobs(target,radius=7)
 		at.assertEquals(
 			neighbours,
 			[neighbour2]
